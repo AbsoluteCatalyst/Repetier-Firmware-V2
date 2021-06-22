@@ -1,10 +1,34 @@
 #include "Repetier.h"
 
 // BASE --
+BeeperSourceBase::BeeperSourceBase()
+    : playing(false)
+    , halted(false)
+    , muted(false)
+    , blocking(false)
+    , toneHead(-1)
+    , toneTail(-1)
+    , prevToneTimeMS(0u)
+    , playingFreq(0u)
+    , beepBuf { 0 }
+    , lastConditionStep(0)
+    , curConditionStep(0)
+    , curValidCondition(nullptr)
+    , lastValidCondition(nullptr) {};
+
 void BeeperSourceBase::muteAll(bool set) {
     for (size_t i = 0u; i < NUM_BEEPERS; i++) {
         beepers[i]->mute(set);
     }
+}
+bool BeeperSourceBase::mute(bool set) {
+    if (set == isMuted()) {
+        return true;
+    }
+    if (set && isPlaying()) {
+        finishPlaying(); // Kill any timers/pwm only if we're playing.
+    }
+    return (muted = set);
 }
 bool BeeperSourceBase::pushTone(const TonePacket packet) {
     if (isMuted() || isBlocking() || !packet.duration) {
@@ -13,7 +37,7 @@ bool BeeperSourceBase::pushTone(const TonePacket packet) {
     if (++toneHead >= beepBufSize) {
         toneHead = 0;
     }
-    beepBuf[toneHead] = packet;
+    beepBuf[toneHead] = { packet.frequency, packet.duration };
     if (!isPlaying()) {
         prevToneTimeMS = HAL::timeInMilliseconds();
         toneTail = 0;

@@ -44,9 +44,9 @@ public:
         : savedTheme(theme)
         , themeSize(size) {
     }
+    virtual ~ToneTheme() {};
     const TonePacket getTone(fast8_t index) {
-        TonePacket beep;
-        memcpy_P(&beep, &savedTheme[index], sizeof(TonePacket));
+        TonePacket beep = pgm_read_dword(&savedTheme[index]);
         return beep;
     }
     inline const fast8_t getSize() { return themeSize; }
@@ -67,40 +67,21 @@ struct ToneCondition {
 
 class BeeperSourceBase {
 public:
-    BeeperSourceBase()
-        : playing(false)
-        , halted(false)
-        , muted(false)
-        , blocking(false)
-        , toneHead(-1)
-        , toneTail(-1)
-        , prevToneTimeMS(0u)
-        , playingFreq(0u)
-        , beepBuf { 0 }
-        , lastConditionStep(0)
-        , curConditionStep(0)
-        , curValidCondition(nullptr)
-        , lastValidCondition(nullptr) { }
+    BeeperSourceBase(const BeeperSourceBase&) = delete;
+    BeeperSourceBase& operator=(const BeeperSourceBase&) = delete;
+    explicit BeeperSourceBase();
     virtual ~BeeperSourceBase() {};
     inline fast8_t getHeadDist() {
         return !isPlaying() ? 0 : (toneHead >= toneTail ? (toneHead - toneTail) : (beepBufSize - toneTail + toneHead));
     }
-    virtual const ufast8_t getOutputType() { return 0u; };
+    virtual const ufast8_t getOutputType() = 0;
     inline uint16_t getCurFreq() { return playingFreq; }
     inline bool isPlaying() { return playing; }
     inline bool isHalted() { return halted; }
     inline bool isMuted() { return muted; }
     inline bool isBlocking() { return blocking; }
     static void muteAll(bool set); // public helper to mute all beepers globally
-    bool mute(bool set) {
-        if (set == isMuted()) {
-            return true;
-        }
-        if (set && isPlaying()) {
-            finishPlaying(); // Kill any timers/pwm only if we're playing.
-        }
-        return (muted = set);
-    }
+    bool mute(bool set);
     fast8_t process();
     bool pushTone(const TonePacket packet);
     bool playTheme(ToneTheme& theme, bool block);
@@ -133,6 +114,8 @@ private:
 template <class IOPin>
 class BeeperSourceIO : public BeeperSourceBase {
 public:
+    BeeperSourceIO(const BeeperSourceIO&) = delete;
+    BeeperSourceIO& operator=(const BeeperSourceIO&) = delete;
     BeeperSourceIO()
         : BeeperSourceBase()
         , freqCnt(0u)
@@ -141,10 +124,11 @@ public:
         hasSoftwareBeepers = true;
         IOPin::off();
     }
+    virtual ~BeeperSourceIO() {};
     inline const ufast8_t getOutputType() final { return 1u; }
-    inline ufast8_t getFreqDiv() final { return freqDiv; }
-    inline void setFreqDiv(ufast8_t div) final { freqDiv = div * 2u; }
-    INLINE void toggle(bool state) {
+    inline ufast8_t getFreqDiv() final override { return freqDiv; }
+    inline void setFreqDiv(ufast8_t div) final override { freqDiv = div * 2u; }
+    __always_inline void toggle(bool state) {
         if (isPlaying() && !isHalted()) {
             if (!getFreqDiv()) {
                 IOPin::set((lastPinState = state));
@@ -157,7 +141,6 @@ public:
             IOPin::set((lastPinState = false));
         }
     }
-    virtual ~BeeperSourceIO() {};
 
 private:
     void refreshBeepFreq() final;
@@ -169,15 +152,17 @@ private:
 
 class BeeperSourcePWM : public BeeperSourceBase {
 public:
-    explicit BeeperSourcePWM(PWMHandler &pwm)
+    BeeperSourcePWM(const BeeperSourcePWM&) = delete;
+    BeeperSourcePWM& operator=(const BeeperSourcePWM&) = delete;
+    explicit BeeperSourcePWM(PWMHandler& pwm)
         : BeeperSourceBase()
         , pwmPin(pwm) {
         pwmPin.set(0);
     };
+    virtual ~BeeperSourcePWM() {};
     inline const ufast8_t getOutputType() final { return 2u; }
     inline ufast8_t getFreqDiv() final { return 0u; }
-    inline void setFreqDiv(ufast8_t div) final { }
-    virtual ~BeeperSourcePWM() {};
+    inline void setFreqDiv(ufast8_t div) final override { }
 private:
     void refreshBeepFreq() final;
     inline void finishPlaying() final {
