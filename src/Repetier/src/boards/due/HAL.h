@@ -342,6 +342,27 @@ union eeval_t {
     long l;
 } PACK;
 
+using irq_handler_t = decltype(_DeviceVectors::pfnReset_Handler);
+struct VectorTable {
+    static constexpr size_t count = sizeof(_DeviceVectors) / sizeof(irq_handler_t);
+    union { // VTOR IRQ table saved in RAM. Allows us to change IRQ handlers at runtime.
+        DeviceVectors vector;
+        irq_handler_t irq[VectorTable::count];
+    };
+    irq_handler_t& operator[](size_t index) {
+        return irq[index % count];
+    }
+    const irq_handler_t& operator[](size_t index) const {
+        return irq[index % count];
+    }
+    irq_handler_t& operator[](IRQn_Type index) {
+        return irq[(index + NVIC_USER_IRQ_OFFSET) % count];
+    }
+    const irq_handler_t& operator[](IRQn_Type index) const {
+        return irq[(index + NVIC_USER_IRQ_OFFSET) % count];
+    }
+};
+
 #if EEPROM_AVAILABLE == EEPROM_SDCARD || EEPROM_AVAILABLE == EEPROM_FLASH
 extern millis_t eprSyncTime;
 #endif

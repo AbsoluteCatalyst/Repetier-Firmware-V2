@@ -37,6 +37,10 @@
 //extern "C" void __cxa_pure_virtual() { }
 extern "C" char* sbrk(int i);
 
+VectorTable ramVecTbl __attribute__((used, aligned(128ul), section(".ramfunc")));
+#ifndef NVIC_USER_IRQ_OFFSET
+#define NVIC_USER_IRQ_OFFSET 16
+#endif
 // New adc handling
 bool analogEnabled[MAX_ANALOG_INPUTS] = { false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false };
 
@@ -78,19 +82,17 @@ uint32_t dwt_init(void) {
     return (DWT->CYCCNT) ? 0 : 1;
 }
 
-extern "C" void SERVO_TIMER_VECTOR();
-extern "C" void MOTION2_TIMER_VECTOR();
-extern "C" void MOTION3_TIMER_VECTOR();
-extern "C" void PWM_TIMER_VECTOR();
-extern "C" void BEEPER_TIMER_VECTOR();
+extern void SERVO_TIMER_VECTOR();
+extern void MOTION2_TIMER_VECTOR();
+extern void MOTION3_TIMER_VECTOR();
+extern void PWM_TIMER_VECTOR();
+extern void BEEPER_TIMER_VECTOR();
 
-using vector_handler_t = decltype(_DeviceVectors::pfnReset_Handler);
-struct { // VTOR IRQ table saved in RAM. Allows us to change IRQ handlers at runtime.
-    union {
-        _DeviceVectors vector; // Access helper (eg. ramVTOR.vector.pfnUsageFault_Handler = blah;)
-        vector_handler_t irq[sizeof(vector) / sizeof(vector_handler_t)];
-    };
-} static ramVTOR __attribute__((used, aligned(128ul), section(".ramfunc")));
+static TcChannel* pwmIRQChanReg;
+static TcChannel* motion2IRQChanReg;
+static TcChannel* motion3IRQChanReg;
+static TcChannel* beeperIRQChanReg;
+static TcChannel* servoIRQChanReg;
 
 
 struct TimerPWMPin;
@@ -139,15 +141,9 @@ static bool getNextFreeTimer(int8_t& chanIRQn, uint8_t& chanGroup, Tc*& chanReg)
         return false;
     }
 
-    chanIRQn += TC0_IRQn;
+    chanIRQn += TC0_IRQn; // Offset the channel by the first timer IRQn (at index 27)
     return true;
 }
-
-static TcChannel* pwmIRQChanReg;
-static TcChannel* motion2IRQChanReg;
-static TcChannel* motion3IRQChanReg;
-static TcChannel* beeperIRQChanReg;
-static TcChannel* servoIRQChanReg;
 
 
 // Set up all timer interrupts
@@ -167,15 +163,9 @@ void HAL::setupTimer() {
     uint32_t tc_count, tc_clock;
     pmc_set_writeprotect(false);
 
-    // Copy the vtor table to our own ramVTOR table and update SCB.
-    memcpy(ramVTOR.irq, reinterpret_cast<const uint32_t*>(SCB->VTOR), sizeof(ramVTOR));
-    SCB->VTOR = reinterpret_cast<uint32_t>(ramVTOR.irq);
-    __DSB();
-
-    // Turn on divide by 0/unaligned access errors?
-    //SCB->CCR = SCB_CCR_DIV_0_TRP_Msk | SCB_CCR_UNALIGN_TRP_Msk;
-    //SCB->SHCSR = SCB_SHCSR_USGFAULTENA_Msk | SCB_SHCSR_BUSFAULTENA_Msk;
-    //__DSB();
+    // Copy the vtor table to our own ramVecTbl table and update SCB.
+    memcpy(ramVecTbl.irq, reinterpret_cast<const uint32_t*>(SCB->VTOR), sizeof(ramVecTbl));
+    SCB->VTOR = reinterpret_cast<uint32_t>(ramVecTbl.irq);
 
     int8_t tcChanIRQn = 0u;   // tc irqn id 0-8, eg. TC0_IRQn TC1_IRQn... Offset by 27 (TC0_IRQn)
     uint8_t tcInnerChan = 0u; // inner tc channel 0..2 (each tc has 3 of these)
@@ -189,12 +179,12 @@ void HAL::setupTimer() {
         NVIC_SetPriority(static_cast<IRQn_Type>(tcChanIRQn), 2ul);
         TC_Configure(tcReg, tcInnerChan, TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE | TC_CMR_TCCLKS_TIMER_CLOCK1);
         TC_SetRC(tcReg, tcInnerChan, (F_CPU_TRUE / 2ul) / PREPARE_FREQUENCY);
-        TC_Start(tcReg, tcInnerChan);
         motion2IRQChanReg = &tcReg->TC_CHANNEL[tcInnerChan];
         motion2IRQChanReg->TC_IER = TC_IER_CPCS;
         motion2IRQChanReg->TC_IDR = ~TC_IER_CPCS;
-        // VTOR table also contains the Cortex Exceptions, which stop at index 16. So offset any atmel IRQn_Type's by 16.
-        ramVTOR.irq[tcChanIRQn + 16u] = reinterpret_cast<vector_handler_t>(MOTION2_TIMER_VECTOR);
+        ramVecTbl.irq[tcChanIRQn + NVIC_USER_IRQ_OFFSET] = reinterpret_cast<irq_handler_t>(MOTION2_TIMER_VECTOR);
+
+        TC_Start(tcReg, tcInnerChan);
         NVIC_EnableIRQ(static_cast<IRQn_Type>(tcChanIRQn));
     }
 #else
@@ -211,12 +201,12 @@ void HAL::setupTimer() {
         TC_FindMckDivisor(PWM_CLOCK_FREQ, F_CPU_TRUE, &tc_count, &tc_clock, F_CPU_TRUE);
         TC_Configure(tcReg, tcInnerChan, TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE | tc_clock);
         TC_SetRC(tcReg, tcInnerChan, (F_CPU_TRUE / tc_count) / PWM_CLOCK_FREQ);
-        TC_Start(tcReg, tcInnerChan);
         pwmIRQChanReg = &tcReg->TC_CHANNEL[tcInnerChan];
         pwmIRQChanReg->TC_IER = TC_IER_CPCS;
         pwmIRQChanReg->TC_IDR = ~TC_IER_CPCS;
+        ramVecTbl.irq[tcChanIRQn + NVIC_USER_IRQ_OFFSET] = reinterpret_cast<irq_handler_t>(PWM_TIMER_VECTOR);
 
-        ramVTOR.irq[tcChanIRQn + 16u] = reinterpret_cast<vector_handler_t>(PWM_TIMER_VECTOR);
+        TC_Start(tcReg, tcInnerChan);
         NVIC_EnableIRQ(static_cast<IRQn_Type>(tcChanIRQn));
     }
 
@@ -227,13 +217,13 @@ void HAL::setupTimer() {
         NVIC_SetPriority(static_cast<IRQn_Type>(tcChanIRQn), 0ul);
         TC_Configure(tcReg, tcInnerChan, TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE | TC_CMR_TCCLKS_TIMER_CLOCK1);
         TC_SetRC(tcReg, tcInnerChan, (F_CPU_TRUE / 2ul) / STEPPER_FREQUENCY);
-        TC_Start(tcReg, tcInnerChan);
 
         motion3IRQChanReg = &tcReg->TC_CHANNEL[tcInnerChan];
         motion3IRQChanReg->TC_IER = TC_IER_CPCS;
         motion3IRQChanReg->TC_IDR = ~TC_IER_CPCS;
+        ramVecTbl.irq[tcChanIRQn + NVIC_USER_IRQ_OFFSET] = reinterpret_cast<irq_handler_t>(MOTION3_TIMER_VECTOR);
 
-        ramVTOR.irq[tcChanIRQn + 16u] = reinterpret_cast<vector_handler_t>(MOTION3_TIMER_VECTOR);
+        TC_Start(tcReg, tcInnerChan);
 
         NVIC_EnableIRQ(static_cast<IRQn_Type>(tcChanIRQn));
     }
@@ -251,11 +241,11 @@ void HAL::setupTimer() {
         NVIC_SetPriority(static_cast<IRQn_Type>(tcChanIRQn), 3ul);
         TC_Configure(tcReg, tcInnerChan, TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE | TC_CMR_TCCLKS_TIMER_CLOCK1);
         TC_SetRC(tcReg, tcInnerChan, (F_CPU_TRUE / SERVO_PRESCALE) / SERVO_CLOCK_FREQ);
-        TC_Start(tcReg, tcInnerChan);
         servoIRQChanReg = &tcReg->TC_CHANNEL[tcInnerChan];
         servoIRQChanReg->TC_IER = TC_IER_CPCS;
         servoIRQChanReg->TC_IDR = ~TC_IER_CPCS;
-        ramVTOR.irq[tcChanIRQn + 16u] = reinterpret_cast<vector_handler_t>(SERVO_TIMER_VECTOR);
+        ramVecTbl.irq[tcChanIRQn + NVIC_USER_IRQ_OFFSET] = reinterpret_cast<irq_handler_t>(SERVO_TIMER_VECTOR);
+        TC_Start(tcReg, tcInnerChan);
         NVIC_EnableIRQ(static_cast<IRQn_Type>(tcChanIRQn));
     }
 #endif
@@ -269,7 +259,7 @@ void HAL::setupTimer() {
         beeperIRQChanReg = &tcReg->TC_CHANNEL[tcInnerChan];
         beeperIRQChanReg->TC_IER = TC_IER_CPCS | TC_IER_CPAS;
         beeperIRQChanReg->TC_IDR = ~TC_IER_CPCS & ~TC_IER_CPAS;
-        ramVTOR.irq[tcChanIRQn + 16u] = reinterpret_cast<vector_handler_t>(BEEPER_TIMER_VECTOR);
+        ramVecTbl.irq[tcChanIRQn + NVIC_USER_IRQ_OFFSET] = reinterpret_cast<irq_handler_t>(BEEPER_TIMER_VECTOR);
         NVIC_EnableIRQ(static_cast<IRQn_Type>(tcChanIRQn));
     }
 #endif
@@ -500,17 +490,18 @@ int HAL::initHardwarePWM(int pinNumber, uint32_t frequency) {
             c.timer_B = &t;
         }
 
-        t.pio->PIO_PDR |= t.pio_pin;
-
-        if (!t.peripheral_A) {
-            t.pio->PIO_ABSR |= t.pio_pin;
-        } else {
-            t.pio->PIO_ABSR &= ~t.pio_pin;
-        }
+        PIO_Configure(
+            t.pio,
+            !t.peripheral_A ? PIO_PERIPH_B : PIO_PERIPH_A,
+            t.pio_pin,
+            PIO_DEFAULT);
 
         pmc_enable_periph_clk(TC0_IRQn + t.tc_global_chan);
         TC_Configure(t.tc_base_address, t.tc_local_chan,
-                     TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE | TC_CMR_TCCLKS_TIMER_CLOCK1 | TC_CMR_EEVT_XC0);
+                     TC_CMR_WAVSEL_UP_RC | TC_CMR_WAVE
+                         | TC_CMR_TCCLKS_TIMER_CLOCK1 | TC_CMR_EEVT_XC0
+                         | TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR
+                         | TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR);
 
         TC_SetRC(t.tc_base_address, t.tc_local_chan, (F_CPU_TRUE / 2) / frequency);
         TC_Start(t.tc_base_address, t.tc_local_chan);
@@ -1158,7 +1149,7 @@ void SERVO_TIMER_VECTOR() {
 
 /** \brief Timer interrupt routine to drive the stepper motors.
 */
-__attribute__((no_instrument_function)) void MOTION3_TIMER_VECTOR() {
+void MOTION3_TIMER_VECTOR() {
 #if DEBUG_TIMING
     WRITE(DEBUG_ISR_STEPPER_PIN, 1);
 #endif
