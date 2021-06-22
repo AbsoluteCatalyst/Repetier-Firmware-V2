@@ -522,7 +522,7 @@ static bool udc_req_std_dev_set_feature(void)
 		return false;
 #endif
 
-#ifdef USB_DEVICE_HS_SUPPORT
+#if 0 //def USB_DEVICE_HS_SUPPORT
 	case USB_DEV_FEATURE_TEST_MODE:
 		if (!udd_is_high_speed()) {
 			break;

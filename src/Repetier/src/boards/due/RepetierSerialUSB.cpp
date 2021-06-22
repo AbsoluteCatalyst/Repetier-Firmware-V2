@@ -40,6 +40,12 @@ bool udi_cdc_is_tx_ready();
 int udi_cdc_putc(int value);
 };
 
+// If host/PC doesn't respond to a TX byte 3 times 
+// (with 3ms timeouts each), then skip future writes until any read.
+// (This can happen when DTR is still set, but host software
+// doesn't respond.)
+static uint8_t missedTxBytes;
+
 // Pending character
 static int pending_char = -1;
 
@@ -60,6 +66,7 @@ int RepetierSerialUSB::peek() {
     if (!udi_cdc_is_rx_ready()) {
         return -1;
     }
+    missedTxBytes = 0u;
     pending_char = udi_cdc_getc();
 
     return pending_char;
@@ -81,6 +88,8 @@ int RepetierSerialUSB::read() {
         return -1;
     }
 
+    
+    missedTxBytes = 0u;
     int c = udi_cdc_getc();
 
     return c;
@@ -96,28 +105,27 @@ int RepetierSerialUSB::available() {
 
 void RepetierSerialUSB::flush() { }
 
+
 size_t RepetierSerialUSB::write(const uint8_t c) {
-
-    /* Do not even bother sending anything if USB CDC is not enumerated
-     or not configured on the PC side or there is no program on the PC
-     listening to our messages */
-    if (!usb_task_cdc_isenabled() || !usb_task_cdc_dtr_active())
+    if (missedTxBytes == 3u) {
         return 0;
-
+    }
+    
+    millis_t start = HAL::timeInMilliseconds();
     /* Wait until the PC has read the pending to be sent data */
-    while (usb_task_cdc_isenabled() && usb_task_cdc_dtr_active() && !udi_cdc_is_tx_ready()) {
+    while (usb_task_cdc_isenabled() && usb_task_cdc_dtr_active()) {
+        if (udi_cdc_is_tx_ready()) {
+            missedTxBytes = 0u;
+            udi_cdc_putc(c);
+            return 1;
+        }
+        if ((HAL::timeInMilliseconds() - start) > 2ul) {
+            missedTxBytes++;
+            break;
+        }
     };
-
-    /* Do not even bother sending anything if USB CDC is not enumerated
-     or not configured on the PC side or there is no program on the PC
-     listening to our messages at this point */
-    if (!usb_task_cdc_isenabled() || !usb_task_cdc_dtr_active())
-        return 0;
-
-    // Fifo full
-    //  udi_cdc_signal_overrun();
-    udi_cdc_putc(c);
-    return 1;
+    
+    return 0;
 }
 
 RepetierSerialUSB SerialUSB;

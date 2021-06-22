@@ -716,11 +716,14 @@ static void udi_cdc_tx_send(uint8_t port)
 	if (udi_cdc_tx_trans_ongoing[port]) {
 		return; // Already on going or wait next SOF to send next data
 	}
+#ifdef USB_DEVICE_HS_MSOF_INT
 	if (udd_is_high_speed()) {
 		if (udi_cdc_tx_sof_num[port] == udd_get_micro_frame_number()) {
 			return; // Wait next SOF to send next data
 		}
-	}else{
+	} else
+#endif 
+	{
 		if (udi_cdc_tx_sof_num[port] == udd_get_frame_number()) {
 			return; // Wait next SOF to send next data
 		}
@@ -752,9 +755,13 @@ static void udi_cdc_tx_send(uint8_t port)
 
 	b_short_packet = (udi_cdc_tx_buf_nb[port][buf_sel_trans] != UDI_CDC_TX_BUFFERS);
 	if (b_short_packet) {
+		
+#ifdef USB_DEVICE_HS_MSOF_INT
 		if (udd_is_high_speed()) {
 			udi_cdc_tx_sof_num[port] = udd_get_micro_frame_number();
-		}else{
+		} else
+#endif
+		{
 			udi_cdc_tx_sof_num[port] = udd_get_frame_number();
 		}
 	}else{
@@ -787,52 +794,52 @@ static void udi_cdc_tx_send(uint8_t port)
 
 //------- Application interface
 
-void udi_cdc_ctrl_signal_dcd(bool b_set)
+inline void udi_cdc_ctrl_signal_dcd(bool b_set)
 {
 	udi_cdc_ctrl_state_change(0, b_set, CDC_SERIAL_STATE_DCD);
 }
 
-void udi_cdc_ctrl_signal_dsr(bool b_set)
+inline void udi_cdc_ctrl_signal_dsr(bool b_set)
 {
 	udi_cdc_ctrl_state_change(0, b_set, CDC_SERIAL_STATE_DSR);
 }
 
-void udi_cdc_signal_framing_error(void)
+inline void udi_cdc_signal_framing_error(void)
 {
 	udi_cdc_ctrl_state_change(0, true, CDC_SERIAL_STATE_FRAMING);
 }
 
-void udi_cdc_signal_parity_error(void)
+inline void udi_cdc_signal_parity_error(void)
 {
 	udi_cdc_ctrl_state_change(0, true, CDC_SERIAL_STATE_PARITY);
 }
 
-void udi_cdc_signal_overrun(void)
+inline void udi_cdc_signal_overrun(void)
 {
 	udi_cdc_ctrl_state_change(0, true, CDC_SERIAL_STATE_OVERRUN);
 }
 
-void udi_cdc_multi_ctrl_signal_dcd(uint8_t port, bool b_set)
+inline void udi_cdc_multi_ctrl_signal_dcd(uint8_t port, bool b_set)
 {
 	udi_cdc_ctrl_state_change(port, b_set, CDC_SERIAL_STATE_DCD);
 }
 
-void udi_cdc_multi_ctrl_signal_dsr(uint8_t port, bool b_set)
+inline void udi_cdc_multi_ctrl_signal_dsr(uint8_t port, bool b_set)
 {
 	udi_cdc_ctrl_state_change(port, b_set, CDC_SERIAL_STATE_DSR);
 }
 
-void udi_cdc_multi_signal_framing_error(uint8_t port)
+inline void udi_cdc_multi_signal_framing_error(uint8_t port)
 {
 	udi_cdc_ctrl_state_change(port, true, CDC_SERIAL_STATE_FRAMING);
 }
 
-void udi_cdc_multi_signal_parity_error(uint8_t port)
+inline void udi_cdc_multi_signal_parity_error(uint8_t port)
 {
 	udi_cdc_ctrl_state_change(port, true, CDC_SERIAL_STATE_PARITY);
 }
 
-void udi_cdc_multi_signal_overrun(uint8_t port)
+inline void udi_cdc_multi_signal_overrun(uint8_t port)
 {
 	udi_cdc_ctrl_state_change(port, true, CDC_SERIAL_STATE_OVERRUN);
 }
@@ -853,17 +860,17 @@ iram_size_t udi_cdc_multi_get_nb_received_data(uint8_t port)
 	return nb_received;
 }
 
-iram_size_t udi_cdc_get_nb_received_data(void)
+inline iram_size_t udi_cdc_get_nb_received_data(void)
 {
 	return udi_cdc_multi_get_nb_received_data(0);
 }
 
-bool udi_cdc_multi_is_rx_ready(uint8_t port)
+inline bool udi_cdc_multi_is_rx_ready(uint8_t port)
 {
 	return (udi_cdc_multi_get_nb_received_data(port) > 0);
 }
 
-bool udi_cdc_is_rx_ready(void)
+inline bool udi_cdc_is_rx_ready(void)
 {
 	return udi_cdc_multi_is_rx_ready(0);
 }
@@ -912,7 +919,7 @@ udi_cdc_getc_process_one_byte:
 	return rx_data;
 }
 
-int udi_cdc_getc(void)
+inline int udi_cdc_getc(void)
 {
 	return udi_cdc_multi_getc(0);
 }
@@ -1002,12 +1009,12 @@ static iram_size_t udi_cdc_multi_read_no_polling(uint8_t port, void* buf, iram_s
 	return(nb_avail_data);
 }
 
-iram_size_t udi_cdc_read_no_polling(void* buf, iram_size_t size)
+inline iram_size_t udi_cdc_read_no_polling(void* buf, iram_size_t size)
 {
 	return udi_cdc_multi_read_no_polling(0, buf, size);
 }
 
-iram_size_t udi_cdc_read_buf(void* buf, iram_size_t size)
+inline iram_size_t udi_cdc_read_buf(void* buf, iram_size_t size)
 {
 	return udi_cdc_multi_read_buf(0, buf, size);
 }
@@ -1041,17 +1048,17 @@ iram_size_t __attribute__((optimize("O0"))) udi_cdc_multi_get_free_tx_buffer(uin
 	return retval;
 }
 
-iram_size_t udi_cdc_get_free_tx_buffer(void)
+inline iram_size_t udi_cdc_get_free_tx_buffer(void)
 {
 	return udi_cdc_multi_get_free_tx_buffer(0);
 }
 
-bool udi_cdc_multi_is_tx_ready(uint8_t port)
+inline bool udi_cdc_multi_is_tx_ready(uint8_t port)
 {
 	return (udi_cdc_multi_get_free_tx_buffer(port) != 0);
 }
 
-bool udi_cdc_is_tx_ready(void)
+inline bool udi_cdc_is_tx_ready(void)
 {
 	return udi_cdc_multi_is_tx_ready(0);
 }
@@ -1071,8 +1078,9 @@ int udi_cdc_multi_putc(uint8_t port, int value)
 udi_cdc_putc_process_one_byte:
 	// Check available space
 	if (!udi_cdc_multi_is_tx_ready(port)) {
-		if (!udi_cdc_data_running) {
+		if (!udi_cdc_data_running || !cpu_irq_is_enabled()) { 
 			return false;
+			// If tx buf is full and the IRQ is off for any reason, we have to stop!
 		}
 		goto udi_cdc_putc_process_one_byte;
 	}
@@ -1092,7 +1100,7 @@ udi_cdc_putc_process_one_byte:
 	return true;
 }
 
-int udi_cdc_putc(int value)
+inline int udi_cdc_putc(int value)
 {
 	return udi_cdc_multi_putc(0, value);
 }
@@ -1116,7 +1124,7 @@ iram_size_t __attribute__((optimize("O0"))) udi_cdc_multi_write_buf(uint8_t port
 udi_cdc_write_buf_loop_wait:
 	// Check available space
 	if (!udi_cdc_multi_is_tx_ready(port)) {
-		if (!udi_cdc_data_running) {
+		if (!udi_cdc_data_running || !cpu_irq_is_enabled()) {
 			return size;
 		}
 		goto udi_cdc_write_buf_loop_wait;
@@ -1145,7 +1153,7 @@ udi_cdc_write_buf_loop_wait:
 	return 0;
 }
 
-iram_size_t udi_cdc_write_buf(const void* buf, iram_size_t size)
+inline iram_size_t udi_cdc_write_buf(const void* buf, iram_size_t size)
 {
 	return udi_cdc_multi_write_buf(0, buf, size);
 }
