@@ -78,7 +78,7 @@
 //#define  USB_DEVICE_LOW_SPEED
 
 //! To define a Full speed device
-#define USB_DEVICE_FULL_SPEED
+// #define USB_DEVICE_FULL_SPEED
 
 //! To authorize the High speed
 #ifndef USB_DEVICE_FULL_SPEED
@@ -87,6 +87,9 @@
 #elif (SAM3XA || SAM3U)
 #define USB_DEVICE_HS_SUPPORT
 #endif
+#endif
+#ifdef USB_DEVICE_HS_SUPPORT
+// #define USB_DEVICE_HS_MSOF_INT // Uncomment to generate micro-start-of-frame interrupts every 125us. 
 #endif
 //@}
 
@@ -101,6 +104,11 @@
 #define UDC_GET_EXTRA_STRING() usb_task_extra_string()
 #define USB_DEVICE_SPECIFIC_REQUEST() usb_task_other_requests()
 //@}
+// USB Interrupt Priority Level
+#ifndef UDD_USB_INT_LEVEL
+#define UDD_USB_INT_LEVEL 5 // By default USB interrupt have low priority
+#endif
+//#include 
 
 //@}
 
@@ -121,7 +129,7 @@
 //! Interface callback definition
 #define UDI_CDC_ENABLE_EXT(port) usb_task_cdc_enable(port)
 #define UDI_CDC_DISABLE_EXT(port) usb_task_cdc_disable(port)
-#define UDI_CDC_RX_NOTIFY(port) usb_task_cdc_rx_notify(port)
+#define UDI_CDC_RX_NOTIFY(port) //usb_task_cdc_rx_notify(port)
 #define UDI_CDC_TX_EMPTY_NOTIFY(port)
 #define UDI_CDC_SET_CODING_EXT(port, cfg) usb_task_cdc_config(port, cfg)
 #define UDI_CDC_SET_DTR_EXT(port, set) usb_task_cdc_set_dtr(port, set)

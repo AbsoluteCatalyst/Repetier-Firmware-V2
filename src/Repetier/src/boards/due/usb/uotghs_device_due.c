@@ -542,20 +542,26 @@ ISR(UDD_USB_INT_FUN)
 
 	if (Is_udd_sof()) {
 		udd_ack_sof();
+#ifdef USB_DEVICE_HS_MSOF_INT
 		if (Is_udd_full_speed_mode()) {
 			udc_sof_notify();
 		}
+#else
+		udc_sof_notify();
+#endif
 #ifdef UDC_SOF_EVENT
 		UDC_SOF_EVENT();
 #endif
 		goto udd_interrupt_sof_end;
 	}
 
+#ifdef USB_DEVICE_HS_MSOF_INT
 	if (Is_udd_msof()) {
-		udd_ack_msof();
+		udd_ack_msof();  
 		udc_sof_notify();
 		goto udd_interrupt_sof_end;
 	}
+#endif
 
 	dbg_print("%c ", udd_is_high_speed() ? 'H' : 'F');
 
@@ -800,13 +806,15 @@ void udd_attach(void)
 	udd_enable_suspend_interrupt();
 	udd_enable_wake_up_interrupt();
 	udd_enable_sof_interrupt();
-#ifdef USB_DEVICE_HS_SUPPORT
+#ifdef USB_DEVICE_HS_MSOF_INT
 	udd_enable_msof_interrupt();
 #endif
 	// Reset following interupts flag
 	udd_ack_reset();
 	udd_ack_sof();
+#ifdef USB_DEVICE_HS_MSOF_INT  
 	udd_ack_msof();
+#endif
 
 	// The first suspend interrupt must be forced
 	// The first suspend interrupt is not detected else raise it
@@ -832,6 +840,9 @@ void udd_detach(void)
 bool udd_is_high_speed(void)
 {
 #ifdef USB_DEVICE_HS_SUPPORT
+#ifndef USB_DEVICE_HS_MSOF_INT 
+	return true;
+#endif
 	return !Is_udd_full_speed_mode();
 #else
 	return false;
@@ -1240,7 +1251,7 @@ bool udd_ep_wait_stall_clear(udd_ep_id_t ep,
 #endif // (0 != USB_DEVICE_MAX_EP)
 
 
-#ifdef USB_DEVICE_HS_SUPPORT
+#if 0//def USB_DEVICE_HS_SUPPORT
 
 void udd_test_mode_j(void)
 {

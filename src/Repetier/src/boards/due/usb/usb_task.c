@@ -58,9 +58,18 @@ void usb_task_idle(void) {
 }
 
 
-bool usb_task_cdc_enable(const uint8_t port)  { UNUSED(port); return ((main_b_cdc_enable = true)); }
-void usb_task_cdc_disable(const uint8_t port) { UNUSED(port); main_b_cdc_enable = false; main_b_dtr_active = false; }
-bool usb_task_cdc_isenabled(void)             { return main_b_cdc_enable; }
+inline bool usb_task_cdc_enable(const uint8_t port) {
+    UNUSED(port); 
+    return (main_b_cdc_enable = true);
+}
+void usb_task_cdc_disable(const uint8_t port) {
+    UNUSED(port); 
+    main_b_cdc_enable = false;
+    main_b_dtr_active = false;
+}
+inline bool usb_task_cdc_isenabled(void) {
+    return (main_b_cdc_enable && !Is_udd_suspend());
+}
 
 /*! \brief Called by CDC interface
  * Callback running when CDC device have received data
